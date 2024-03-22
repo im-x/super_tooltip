@@ -1,16 +1,23 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:super_tooltip/src/utils.dart';
 
 import 'bubble_shape.dart';
 import 'enums.dart';
 import 'shape_overlay.dart';
 import 'super_tooltip_controller.dart';
 import 'tooltip_position_delegate.dart';
+import 'utils.dart';
 
 class SuperTooltip extends StatefulWidget {
   final Widget content;
+
+  /// 是否打开位移动画
+  final bool openPositionAnimation;
+
+  /// 位移偏移量
+  final double poistionOffset;
+
   final TooltipDirection popupDirection;
   final SuperTooltipController? controller;
   final void Function()? onLongPress;
@@ -55,9 +62,11 @@ class SuperTooltip extends StatefulWidget {
   final double sigmaX;
   final double sigmaY;
 
-  SuperTooltip({
-    Key? key,
+  const SuperTooltip({
     required this.content,
+    this.openPositionAnimation = false,
+    this.poistionOffset = 16,
+    Key? key,
     this.popupDirection = TooltipDirection.down,
     this.controller,
     this.onLongPress,
@@ -119,10 +128,10 @@ class SuperTooltip extends StatefulWidget {
   })  : assert(showDropBoxFilter ? showBarrier ?? false : true),
         super(key: key);
 
-  static Key insideCloseButtonKey = const Key("InsideCloseButtonKey");
-  static Key outsideCloseButtonKey = const Key("OutsideCloseButtonKey");
-  static Key barrierKey = const Key("barrierKey");
-  static Key bubbleKey = const Key("bubbleKey");
+  static Key insideCloseButtonKey = const Key('InsideCloseButtonKey');
+  static Key outsideCloseButtonKey = const Key('OutsideCloseButtonKey');
+  static Key barrierKey = const Key('barrierKey');
+  static Key bubbleKey = const Key('bubbleKey');
 
   @override
   State createState() => _SuperTooltipState();
@@ -197,8 +206,7 @@ class _SuperTooltipState extends State<SuperTooltip>
     return CompositedTransformTarget(
       link: _layerLink,
       child: GestureDetector(
-        onTap: _superTooltipController!.showTooltip,
-        onLongPress: widget.onLongPress,
+        onLongPress: _superTooltipController!.showTooltip,
         child: widget.child,
       ),
     );
@@ -232,10 +240,12 @@ class _SuperTooltipState extends State<SuperTooltip>
       parent: _animationController,
       curve: Curves.fastOutSlowIn,
     );
+
     final offsetToTarget = Offset(
       -target.dx + size.width / 2,
       -target.dy + size.height / 2,
     );
+
     final backgroundColor =
         widget.backgroundColor ?? Theme.of(context).cardColor;
 
@@ -282,12 +292,34 @@ class _SuperTooltipState extends State<SuperTooltip>
       }
     }
 
+    double toXPosition = 0;
+    double toYPosition = 0;
+    if (preferredDirection == TooltipDirection.up) {
+      toYPosition = -widget.poistionOffset;
+    } else if (preferredDirection == TooltipDirection.down) {
+      toYPosition = widget.poistionOffset;
+    } else if (preferredDirection == TooltipDirection.left) {
+      toXPosition = -widget.poistionOffset;
+    } else if (preferredDirection == TooltipDirection.right) {
+      toXPosition = widget.poistionOffset;
+    }
+
+    final position = Tween<Offset>(
+      begin: Offset(toXPosition, toYPosition),
+      end: Offset.zero,
+    ).animate(_animationController);
+
     _barrierEntry = showBarrier
         ? OverlayEntry(
             builder: (context) => FadeTransition(
               opacity: animation,
               child: GestureDetector(
                 onTap: _superTooltipController!.hideTooltip,
+                onScaleStart: (details) {
+                  if (_superTooltipController!.isVisible) {
+                    _superTooltipController!.hideTooltip();
+                  }
+                },
                 child: Container(
                   key: SuperTooltip.barrierKey,
                   decoration: ShapeDecoration(
@@ -314,10 +346,7 @@ class _SuperTooltipState extends State<SuperTooltip>
                   sigmaX: widget.sigmaX,
                   sigmaY: widget.sigmaY,
                 ),
-                child: Container(
-                  width: double.infinity,
-                  height: double.infinity,
-                ),
+                child: SizedBox.expand(),
               ),
             ),
           )
@@ -330,81 +359,88 @@ class _SuperTooltipState extends State<SuperTooltip>
             link: _layerLink,
             showWhenUnlinked: false,
             offset: offsetToTarget,
-            child: CustomSingleChildLayout(
-              delegate: TooltipPositionDelegate(
-                preferredDirection: preferredDirection,
-                constraints: constraints,
-                top: top,
-                bottom: bottom,
-                left: left,
-                right: right,
-                target: target,
-                // verticalOffset: widget.verticalOffset,
-                overlay: overlay,
-                margin: widget.minimumOutsideMargin,
-                snapsFarAwayHorizontally: widget.snapsFarAwayHorizontally,
-                snapsFarAwayVertically: widget.snapsFarAwayVertically,
-              ),
-              // TD:  Text fields and such will need a material ancestor
-              // In order to function properly. Need to find more elegant way
-              // to add this.
-              child: Stack(
-                fit: StackFit.passthrough,
-                children: <Widget>[
-                  Material(
-                    color: Colors.transparent,
-                    child: GestureDetector(
-                      onTap: () {
-                        if (widget.hideTooltipOnTap)
-                          _superTooltipController!.hideTooltip();
-                      },
-                      child: Container(
-                        key: SuperTooltip.bubbleKey,
-                        margin: SuperUtils.getTooltipMargin(
-                          arrowLength: widget.arrowLength,
-                          arrowTipDistance: widget.arrowTipDistance,
-                          closeButtonSize: closeButtonSize,
-                          preferredDirection: preferredDirection,
-                          showCloseButton: showCloseButton,
-                        ),
-                        padding: SuperUtils.getTooltipPadding(
-                          closeButtonSize: closeButtonSize,
-                          showCloseButton: showCloseButton,
-                        ),
-                        decoration: widget.decoration ??
-                            ShapeDecoration(
-                              color: backgroundColor,
-                              shadows: hasShadow
-                                  ? <BoxShadow>[
-                                      BoxShadow(
-                                        blurRadius: shadowBlurRadius,
-                                        spreadRadius: shadowSpreadRadius,
-                                        color: shadowColor,
-                                      ),
-                                    ]
-                                  : null,
-                              shape: BubbleShape(
-                                arrowBaseWidth: widget.arrowBaseWidth,
-                                arrowTipDistance: widget.arrowTipDistance,
-                                borderColor: widget.borderColor,
-                                borderRadius: widget.borderRadius,
-                                borderWidth: widget.borderWidth,
-                                bottom: bottom,
-                                left: left,
-                                preferredDirection: preferredDirection,
-                                right: right,
-                                target: target,
-                                top: top,
-                                bubbleDimensions: widget.bubbleDimensions,
-                              ),
-                            ),
-                        child: widget.content,
-                      ),
-                    ),
+            child: AnimatedBuilder(
+              animation: position,
+              builder: (context, child) {
+                return CustomSingleChildLayout(
+                  delegate: TooltipPositionDelegate(
+                    preferredDirection: preferredDirection,
+                    constraints: constraints,
+                    top: top,
+                    bottom: bottom,
+                    left: left,
+                    right: right,
+                    target: Offset(target.dx, target.dy + position.value.dy),
+                    // verticalOffset: widget.verticalOffset,
+                    overlay: overlay,
+                    margin: widget.minimumOutsideMargin,
+                    snapsFarAwayHorizontally: widget.snapsFarAwayHorizontally,
+                    snapsFarAwayVertically: widget.snapsFarAwayVertically,
                   ),
-                  _buildCloseButton(),
-                ],
-              ),
+                  // TD:  Text fields and such will need a material ancestor
+                  // In order to function properly. Need to find more elegant way
+                  // to add this.
+                  child: Stack(
+                    fit: StackFit.passthrough,
+                    children: <Widget>[
+                      Material(
+                        color: Colors.transparent,
+                        child: GestureDetector(
+                          onTap: () {
+                            if (widget.hideTooltipOnTap)
+                              _superTooltipController!.hideTooltip();
+                          },
+                          child: Container(
+                            key: SuperTooltip.bubbleKey,
+                            margin: SuperUtils.getTooltipMargin(
+                              arrowLength: widget.arrowLength,
+                              arrowTipDistance: widget.arrowTipDistance,
+                              closeButtonSize: closeButtonSize,
+                              preferredDirection: preferredDirection,
+                              showCloseButton: showCloseButton,
+                            ),
+                            padding: SuperUtils.getTooltipPadding(
+                              closeButtonSize: closeButtonSize,
+                              showCloseButton: showCloseButton,
+                            ),
+                            decoration: widget.decoration ??
+                                ShapeDecoration(
+                                  color: backgroundColor,
+                                  shadows: hasShadow
+                                      ? <BoxShadow>[
+                                          BoxShadow(
+                                            blurRadius: shadowBlurRadius,
+                                            spreadRadius: shadowSpreadRadius,
+                                            color: shadowColor,
+                                            offset: Offset(0, 4),
+                                          ),
+                                        ]
+                                      : null,
+                                  shape: BubbleShape(
+                                    arrowBaseWidth: widget.arrowBaseWidth,
+                                    arrowTipDistance: widget.arrowTipDistance,
+                                    borderColor: widget.borderColor,
+                                    borderRadius: widget.borderRadius,
+                                    borderWidth: widget.borderWidth,
+                                    bottom: bottom,
+                                    left: left,
+                                    preferredDirection: preferredDirection,
+                                    right: right,
+                                    target: Offset(target.dx,
+                                        target.dy + position.value.dy),
+                                    top: top,
+                                    bubbleDimensions: widget.bubbleDimensions,
+                                  ),
+                                ),
+                            child: widget.content,
+                          ),
+                        ),
+                      ),
+                      _buildCloseButton(),
+                    ],
+                  ),
+                );
+              },
             ),
           ),
         ),
@@ -421,7 +457,7 @@ class _SuperTooltipState extends State<SuperTooltip>
     }
   }
 
-  _showTooltip() async {
+  void _showTooltip() async {
     widget.onShow?.call();
 
     // Already visible.
@@ -434,7 +470,7 @@ class _SuperTooltipState extends State<SuperTooltip>
         .whenComplete(_superTooltipController!.complete);
   }
 
-  _removeEntries() {
+  void _removeEntries() {
     _entry?.remove();
     _entry = null;
     _barrierEntry?.remove();
@@ -442,7 +478,7 @@ class _SuperTooltipState extends State<SuperTooltip>
     blur?.remove();
   }
 
-  _hideTooltip() async {
+  void _hideTooltip() async {
     widget.onHide?.call();
     await _animationController
         .reverse()
